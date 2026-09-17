@@ -187,6 +187,8 @@ MotionState::ParsedQuantity MotionState::ToParsedQuantity(MotionStateSignalType 
       return ParsedQuantity::VELOCITY;
     case MotionStateSignalType::TORQUE:
       return ParsedQuantity::TORQUE;
+    case MotionStateSignalType::CURRENT:
+      return ParsedQuantity::CURRENT;
     default:
       throw std::invalid_argument("Unsupported motion-state signal type");
   }
@@ -265,6 +267,7 @@ void MotionState::CreateFromXML(const char * incoming_xml)
   has_positions_ = false;
   has_torques_ = false;
   has_velocities_ = false;
+  has_currents_ = false;
   has_cartesian_positions_ = false;
   parse_pos_ = 0;
   cached_element_name_ = std::string_view{};
@@ -437,6 +440,7 @@ void MotionState::AddJointParseEntries(const MotionStateXmlConfiguration & confi
   std::vector<bool> has_position_for_joint(dof_, false);
   std::vector<bool> has_velocity_for_joint(dof_, false);
   std::vector<bool> has_torque_for_joint(dof_, false);
+  std::vector<bool> has_current_for_joint(dof_, false);
   for (const auto & field : config.joint_fields)
   {
     if (field.joint_identifier.empty() || field.xml_element.empty() || field.xml_attribute.empty())
@@ -460,6 +464,10 @@ void MotionState::AddJointParseEntries(const MotionStateXmlConfiguration & confi
     else if (entry.quantity == ParsedQuantity::TORQUE)
     {
       has_torque_for_joint[entry.joint_index] = true;
+    }
+    else if (entry.quantity == ParsedQuantity::CURRENT)
+    {
+      has_current_for_joint[entry.joint_index] = true;
     }
     parse_plan_.joint_entries.push_back(std::move(entry));
   }
@@ -485,17 +493,25 @@ void MotionState::AddJointParseEntries(const MotionStateXmlConfiguration & confi
   bool all_internal_torque = true;
   bool any_external_torque = false;
   bool all_external_torque = true;
+  bool any_internal_current = false;
+  bool all_internal_current = true;
+  bool any_external_current = false;
+  bool all_external_current = true;
   for (std::size_t i = 0; i < joint_configs_.size(); ++i)
   {
     if (joint_configs_[i].is_external)
     {
       any_external_torque = any_external_torque || has_torque_for_joint[i];
       all_external_torque = all_external_torque && has_torque_for_joint[i];
+      any_external_current = any_external_current || has_current_for_joint[i];
+      all_external_current = all_external_current && has_current_for_joint[i];
     }
     else
     {
       any_internal_torque = any_internal_torque || has_torque_for_joint[i];
       all_internal_torque = all_internal_torque && has_torque_for_joint[i];
+      any_internal_current = any_internal_current || has_current_for_joint[i];
+      all_internal_current = all_internal_current && has_current_for_joint[i];
     }
   }
 
@@ -509,6 +525,18 @@ void MotionState::AddJointParseEntries(const MotionStateXmlConfiguration & confi
   {
     throw std::invalid_argument(
       "Motion-state configuration must include TORQUE field for every external joint if "
+      "configured");
+  }
+  if (any_internal_current && !all_internal_current)
+  {
+    throw std::invalid_argument(
+      "Motion-state configuration must include CURRENT field for every internal joint if "
+      "configured");
+  }
+  if (any_external_current && !all_external_current)
+  {
+    throw std::invalid_argument(
+      "Motion-state configuration must include CURRENT field for every external joint if "
       "configured");
   }
 }
@@ -538,18 +566,28 @@ void MotionState::ConfigureGpioParseEntries(MotionStateXmlConfiguration & config
 
 void MotionState::BuildParseOrder(const MotionStateXmlConfiguration & config)
 {
+  // KUKA's RSI wire format does not place Delay at a fixed offset -- it appears wherever it was
+  // declared in the robot-side SEND element list relative to GPIO/other elements, which differs
+  // per robot configuration (e.g. some configs declare it right after the joint fields and
+  // before GPIO, others declare it last, after GPIO). The parser below only scans forward, so
+  // getting this wrong means it skips past an already-passed Delay element and fails to find it.
+  // Callers that know their robot's exact layout can pin Delay's position explicitly in
+  // field_order; otherwise it defaults to right before the first GPIO entry (or at the end).
   std::vector<ParseOrderEntry> configurable_order;
+  bool caller_specified_delay = false;
   if (!config.field_order.empty())
   {
     configurable_order.reserve(config.field_order.size());
     for (const auto & entry : config.field_order)
     {
-      if (
-        entry.field_type == MotionStateXmlFieldType::DELAY ||
-        entry.field_type == MotionStateXmlFieldType::IPOC)
+      if (entry.field_type == MotionStateXmlFieldType::IPOC)
       {
         throw std::invalid_argument(
-          "Motion-state field_order must not contain DELAY or IPOC; they are handled internally");
+          "Motion-state field_order must not contain IPOC; it is handled internally");
+      }
+      if (entry.field_type == MotionStateXmlFieldType::DELAY)
+      {
+        caller_specified_delay = true;
       }
       configurable_order.push_back({entry.field_type, entry.index});
     }
@@ -570,15 +608,39 @@ void MotionState::BuildParseOrder(const MotionStateXmlConfiguration & config)
     }
   }
 
-  // Delay and IPOC are always parsed exactly once and are not configurable.
   parse_plan_.parse_order.clear();
   parse_plan_.parse_order.reserve(configurable_order.size() + 2);
-  for (const auto & entry : configurable_order)
+
+  if (caller_specified_delay)
   {
-    parse_plan_.parse_order.push_back(entry);
+    // Caller pinned Delay's exact position; use their order verbatim.
+    for (const auto & entry : configurable_order)
+    {
+      parse_plan_.parse_order.push_back(entry);
+    }
   }
-  // These are always parsed after all configurable fields.
-  parse_plan_.parse_order.push_back({MotionStateXmlFieldType::DELAY, 0});
+  else
+  {
+    std::size_t gpio_insert_pos = configurable_order.size();
+    for (std::size_t i = 0; i < configurable_order.size(); ++i)
+    {
+      if (configurable_order[i].field_type == MotionStateXmlFieldType::GPIO)
+      {
+        gpio_insert_pos = i;
+        break;
+      }
+    }
+    for (std::size_t i = 0; i < gpio_insert_pos; ++i)
+    {
+      parse_plan_.parse_order.push_back(configurable_order[i]);
+    }
+    parse_plan_.parse_order.push_back({MotionStateXmlFieldType::DELAY, 0});
+    for (std::size_t i = gpio_insert_pos; i < configurable_order.size(); ++i)
+    {
+      parse_plan_.parse_order.push_back(configurable_order[i]);
+    }
+  }
+  // IPOC is always the last element in the telegram.
   parse_plan_.parse_order.push_back({MotionStateXmlFieldType::IPOC, 0});
 }
 
@@ -744,6 +806,10 @@ void MotionState::ParseJointField(std::string_view xml, std::size_t joint_entry_
     case ParsedQuantity::TORQUE:
       measured_torques_[entry.joint_index] = parsed;
       has_torques_ = true;
+      break;
+    case ParsedQuantity::CURRENT:
+      measured_currents_[entry.joint_index] = parsed;
+      has_currents_ = true;
       break;
     default:
       throw std::invalid_argument("Unknown joint field quantity");

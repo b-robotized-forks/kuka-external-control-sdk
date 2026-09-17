@@ -113,7 +113,8 @@ enum class MotionStateSignalType : uint8_t
 {
   POSITION = 0,
   VELOCITY = 1,
-  TORQUE = 2
+  TORQUE = 2,
+  CURRENT = 3
 };
 
 constexpr const char * MotionStateSignalTypeToString(MotionStateSignalType signal_type)
@@ -126,6 +127,8 @@ constexpr const char * MotionStateSignalTypeToString(MotionStateSignalType signa
       return "velocity";
     case MotionStateSignalType::TORQUE:
       return "torque";
+    case MotionStateSignalType::CURRENT:
+      return "current";
     default:
       return "unknown";
   }
@@ -151,7 +154,8 @@ enum class MotionStateXmlFieldType : uint8_t
   CARTESIAN = 0,
   JOINT = 1,
   GPIO = 2,
-  // Internal-only: DELAY and IPOC are handled by the SDK and are not allowed in field_order.
+  // DELAY may optionally be placed explicitly in field_order (see MotionStateXmlConfiguration);
+  // IPOC is always handled internally and is never allowed in field_order.
   DELAY = 3,
   IPOC = 4
 };
@@ -167,9 +171,9 @@ struct MotionStateXmlConfiguration
   // XML field definitions for joint state values.
   // POSITION must be defined for every joint.
   // If VELOCITY is defined for any joint, it must be defined for all joints.
-  // TORQUE is validated per joint group:
-  //  - if any internal joint defines TORQUE, all internal joints must define TORQUE
-  //  - if any external joint defines TORQUE, all external joints must define TORQUE
+  // TORQUE and CURRENT are each validated per joint group:
+  //  - if any internal joint defines TORQUE/CURRENT, all internal joints must define it
+  //  - if any external joint defines TORQUE/CURRENT, all external joints must define it
   std::vector<MotionStateJointFieldConfiguration> joint_fields;
 
   // XML field definition for Cartesian state values.
@@ -182,7 +186,12 @@ struct MotionStateXmlConfiguration
   std::vector<std::string> gpio_xml_attributes;
 
   // Explicit field ordering for configurable fields in the incoming message.
-  // Delay and IPOC are always handled internally and must not be configured.
+  // IPOC is always handled internally and must not be configured; it is always the last
+  // element in the telegram. DELAY may optionally be included to pin its exact position --
+  // KUKA's RSI wire format does not place it at a fixed offset: it appears wherever it was
+  // declared in the robot-side SEND element list relative to GPIO/other elements, which varies
+  // per robot configuration. If DELAY is omitted, it defaults to right before the first GPIO
+  // entry (or at the end, if there is none).
   std::vector<MotionStateXmlOrderEntry> field_order;
 };
 
@@ -312,7 +321,7 @@ struct Configuration
   std::vector<GPIOConfiguration> gpio_command_configs;
 
   // Optional XML layout used for parsing RSI state messages. If not set, the default
-  // RSI layout (<RIst><AIPos><EIPos><GPIO><Delay><IPOC>) is used.
+  // RSI layout (<RIst><AIPos><EIPos><Delay><GPIO><IPOC>) is used.
   std::optional<MotionStateXmlConfiguration> motion_state_xml_config;
 
   // Optional XML layout for transmitted RSI control signal messages. If not set, the default
