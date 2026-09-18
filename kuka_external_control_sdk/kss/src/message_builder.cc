@@ -93,6 +93,7 @@ struct ParseOrderValidationState
 {
   std::vector<bool> parsed_joint_entries;
   std::vector<bool> parsed_gpio_entries;
+  std::vector<bool> parsed_custom_entries;
   bool has_delay = false;
   bool has_ipoc = false;
   bool has_cartesian = false;
@@ -102,7 +103,7 @@ struct ParseOrderValidationState
 static void ValidateParseOrderEntry(
   MotionStateXmlFieldType field_type, std::size_t index, bool cartesian_enabled,
   bool cartesian_setpoint_enabled, std::size_t joint_entry_count, std::size_t gpio_entry_count,
-  ParseOrderValidationState & state)
+  std::size_t custom_entry_count, ParseOrderValidationState & state)
 {
   switch (field_type)
   {
@@ -165,6 +166,17 @@ static void ValidateParseOrderEntry(
       }
       state.has_ipoc = true;
       break;
+    case MotionStateXmlFieldType::CUSTOM:
+      if (index >= custom_entry_count)
+      {
+        throw std::invalid_argument("Parse order custom index is out of range");
+      }
+      if (state.parsed_custom_entries[index])
+      {
+        throw std::invalid_argument("Parse order contains duplicate custom field entries");
+      }
+      state.parsed_custom_entries[index] = true;
+      break;
     default:
       throw std::invalid_argument("Unsupported parse order field type");
   }
@@ -197,6 +209,12 @@ static void ValidateParseOrderFinalState(
         [](bool v) { return v; }))
   {
     throw std::invalid_argument("Parse order must include all configured GPIO entries");
+  }
+  if (!std::all_of(
+        state.parsed_custom_entries.cbegin(), state.parsed_custom_entries.cend(),
+        [](bool v) { return v; }))
+  {
+    throw std::invalid_argument("Parse order must include all configured custom field entries");
   }
 }
 
@@ -330,6 +348,9 @@ void MotionState::CreateFromXML(const char * incoming_xml)
       case MotionStateXmlFieldType::IPOC:
         ParseIpocField(xml);
         break;
+      case MotionStateXmlFieldType::CUSTOM:
+        ParseCustomField(xml, order_entry.index);
+        break;
       default:
         throw std::invalid_argument("Unsupported parse order entry type");
     }
@@ -415,6 +436,7 @@ void MotionState::InitializeParsePlan(
   InitializeCoreParsePlanFields();
   AddCartesianParseEntry(runtime_config);
   AddCartesianSetpointParseEntry(runtime_config);
+  AddCustomParseEntries(runtime_config);
   AddJointParseEntries(runtime_config);
   ConfigureGpioParseEntries(runtime_config);
   BuildParseOrder(runtime_config);
@@ -466,6 +488,24 @@ void MotionState::AddCartesianSetpointParseEntry(const MotionStateXmlConfigurati
   entry.element_index = GetOrAddParseElementIndex(config.cartesian_setpoint.xml_element);
   entry.attribute_names = config.cartesian_setpoint.xml_attributes;
   parse_plan_.cartesian_setpoint_entry = std::move(entry);
+}
+
+void MotionState::AddCustomParseEntries(const MotionStateXmlConfiguration & config)
+{
+  parse_plan_.custom_entries.reserve(config.custom_fields.size());
+  for (const auto & field : config.custom_fields)
+  {
+    if (field.xml_element.empty() || field.xml_attribute.empty())
+    {
+      throw std::invalid_argument("Custom field configuration entries must not be empty");
+    }
+    CustomParseEntry entry;
+    entry.element_index = GetOrAddParseElementIndex(field.xml_element);
+    entry.attribute_name = field.xml_attribute;
+    parse_plan_.custom_entries.push_back(std::move(entry));
+  }
+  measured_custom_values_.assign(
+    parse_plan_.custom_entries.size(), std::numeric_limits<double>::quiet_NaN());
 }
 
 std::size_t MotionState::FindJointIndexByIdentifier(const std::string & joint_identifier) const
@@ -644,6 +684,10 @@ void MotionState::BuildParseOrder(const MotionStateXmlConfiguration & config)
     {
       configurable_order.push_back({MotionStateXmlFieldType::CARTESIAN, 0});
     }
+    if (parse_plan_.cartesian_setpoint_entry.has_value())
+    {
+      configurable_order.push_back({MotionStateXmlFieldType::CARTESIAN_SETPOINT, 0});
+    }
     for (std::size_t i = 0; i < parse_plan_.joint_entries.size(); ++i)
     {
       configurable_order.push_back({MotionStateXmlFieldType::JOINT, i});
@@ -651,6 +695,10 @@ void MotionState::BuildParseOrder(const MotionStateXmlConfiguration & config)
     for (std::size_t i = 0; i < parse_plan_.gpio_attribute_names.size(); ++i)
     {
       configurable_order.push_back({MotionStateXmlFieldType::GPIO, i});
+    }
+    for (std::size_t i = 0; i < parse_plan_.custom_entries.size(); ++i)
+    {
+      configurable_order.push_back({MotionStateXmlFieldType::CUSTOM, i});
     }
   }
 
@@ -695,6 +743,7 @@ void MotionState::ValidateAndFinalizeParsePlan() const
   ParseOrderValidationState state;
   state.parsed_joint_entries.resize(parse_plan_.joint_entries.size(), false);
   state.parsed_gpio_entries.resize(parse_plan_.gpio_attribute_names.size(), false);
+  state.parsed_custom_entries.resize(parse_plan_.custom_entries.size(), false);
   const bool cartesian_enabled = parse_plan_.cartesian_entry.has_value();
   const bool cartesian_setpoint_enabled = parse_plan_.cartesian_setpoint_entry.has_value();
 
@@ -702,7 +751,8 @@ void MotionState::ValidateAndFinalizeParsePlan() const
   {
     ValidateParseOrderEntry(
       order_entry.field_type, order_entry.index, cartesian_enabled, cartesian_setpoint_enabled,
-      parse_plan_.joint_entries.size(), parse_plan_.gpio_attribute_names.size(), state);
+      parse_plan_.joint_entries.size(), parse_plan_.gpio_attribute_names.size(),
+      parse_plan_.custom_entries.size(), state);
   }
 
   ValidateParseOrderFinalState(cartesian_enabled, cartesian_setpoint_enabled, state);
@@ -933,6 +983,40 @@ void MotionState::ParseCartesianSetpointField(std::string_view xml, const Cartes
     parse_pos_ = value_start + parsed_len + 1;
     measured_cartesian_setpoints_[i] = (i > 2) ? DegreesToRadians(parsed) : parsed;
   }
+}
+
+void MotionState::ParseCustomField(std::string_view xml, std::size_t custom_entry_index)
+{
+  const auto & entry = parse_plan_.custom_entries.at(custom_entry_index);
+  if (const std::string & element_name = parse_plan_.element_names.at(entry.element_index);
+      cached_element_name_ != element_name)
+  {
+    parse_pos_ = cached_element_end_;
+    const std::size_t element_start = FindElementStart(xml, element_name, parse_pos_);
+    if (element_start == std::string_view::npos)
+    {
+      throw std::invalid_argument("Received XML is missing configured custom element");
+    }
+    cached_element_name_ = element_name;
+    cached_element_start_ = element_start;
+    cached_element_end_ = FindElementEnd(xml, element_start);
+    parse_pos_ = element_start + element_name.size() + 1;
+  }
+  const std::size_t element_start = cached_element_start_;
+  const std::size_t element_end = cached_element_end_;
+
+  const std::size_t value_start =
+    FindAttributeValueStart(xml, element_start, element_end, parse_pos_, entry.attribute_name);
+
+  double parsed = 0.0;
+  const std::size_t parsed_len =
+    ParseDouble(xml.data() + value_start, xml.data() + xml.size(), parsed);
+  if (value_start + parsed_len >= element_end || xml[value_start + parsed_len] != '"')
+  {
+    throw std::invalid_argument("Received XML contains malformed custom attribute");
+  }
+  parse_pos_ = value_start + parsed_len + 1;
+  measured_custom_values_[custom_entry_index] = parsed;
 }
 
 void MotionState::ParseDelayField(std::string_view xml)
