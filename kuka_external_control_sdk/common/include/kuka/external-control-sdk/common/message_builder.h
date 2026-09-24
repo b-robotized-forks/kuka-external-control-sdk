@@ -38,10 +38,21 @@ public:
 
   std::vector<double> const & GetMeasuredVelocities() const { return measured_velocities_; }
 
+  std::vector<double> const & GetMeasuredCurrents() const { return measured_currents_; }
+
   std::vector<double> const & GetMeasuredCartesianPositions() const
   {
     return measured_cartesian_positions_;
   }
+
+  std::vector<double> const & GetMeasuredCartesianSetpoints() const
+  {
+    return measured_cartesian_setpoints_;
+  }
+
+  // Arbitrary scalar values (e.g. RSIVisual object outputs like Status/OV_PRO), in the order
+  // declared in MotionStateXmlConfiguration::custom_fields.
+  std::vector<double> const & GetMeasuredCustomValues() const { return measured_custom_values_; }
 
   std::vector<std::unique_ptr<BaseGPIOValue>> const & GetGPIOValues() const
   {
@@ -52,12 +63,17 @@ protected:
   bool has_positions_ = false;
   bool has_torques_ = false;
   bool has_velocities_ = false;
+  bool has_currents_ = false;
   bool has_cartesian_positions_ = false;
+  bool has_cartesian_setpoints_ = false;
 
   std::vector<double> measured_positions_;
   std::vector<double> measured_torques_;
   std::vector<double> measured_velocities_;
+  std::vector<double> measured_currents_;
   std::vector<double> measured_cartesian_positions_;
+  std::vector<double> measured_cartesian_setpoints_;
+  std::vector<double> measured_custom_values_;
   std::vector<std::unique_ptr<BaseGPIOValue>> measured_gpio_values_;
 
   std::size_t dof_;

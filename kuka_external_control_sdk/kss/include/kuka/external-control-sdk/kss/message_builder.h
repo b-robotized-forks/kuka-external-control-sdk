@@ -69,7 +69,9 @@ public:
     measured_positions_.resize(dof, std::numeric_limits<double>::quiet_NaN());
     measured_torques_.resize(dof, std::numeric_limits<double>::quiet_NaN());
     measured_velocities_.resize(dof, std::numeric_limits<double>::quiet_NaN());
+    measured_currents_.resize(dof, std::numeric_limits<double>::quiet_NaN());
     measured_cartesian_positions_.resize(6, std::numeric_limits<double>::quiet_NaN());
+    measured_cartesian_setpoints_.resize(6, std::numeric_limits<double>::quiet_NaN());
     gpio_attribute_names_.reserve(gpio_configs.size());
     for (const auto & config : gpio_configs)
     {
@@ -93,7 +95,8 @@ private:
   {
     POSITION = 0,
     VELOCITY = 1,
-    TORQUE = 2
+    TORQUE = 2,
+    CURRENT = 3
   };
   static ParsedQuantity ToParsedQuantity(MotionStateSignalType signal_type);
 
@@ -111,6 +114,12 @@ private:
     std::array<std::string, 6> attribute_names;
   };
 
+  struct CustomParseEntry
+  {
+    std::size_t element_index = 0;
+    std::string attribute_name;
+  };
+
   struct ParseOrderEntry
   {
     MotionStateXmlFieldType field_type = MotionStateXmlFieldType::JOINT;
@@ -122,6 +131,8 @@ private:
     std::vector<std::string> element_names;
     std::vector<JointParseEntry> joint_entries;
     std::optional<CartesianParseEntry> cartesian_entry;
+    std::optional<CartesianParseEntry> cartesian_setpoint_entry;
+    std::vector<CustomParseEntry> custom_entries;
     std::string delay_element_name = "Delay";
     std::string delay_attribute_name = "D";
     std::string ipoc_element_name = "IPOC";
@@ -138,6 +149,8 @@ private:
   std::size_t GetOrAddParseElementIndex(const std::string & element_name);
   void InitializeCoreParsePlanFields();
   void AddCartesianParseEntry(const MotionStateXmlConfiguration & config);
+  void AddCartesianSetpointParseEntry(const MotionStateXmlConfiguration & config);
+  void AddCustomParseEntries(const MotionStateXmlConfiguration & config);
   void AddJointParseEntries(const MotionStateXmlConfiguration & config);
   void ConfigureGpioParseEntries(MotionStateXmlConfiguration & config);
   void BuildParseOrder(const MotionStateXmlConfiguration & config);
@@ -154,6 +167,8 @@ private:
     std::string_view attribute_name);
   void ParseJointField(std::string_view xml, std::size_t joint_entry_index);
   void ParseCartesianField(std::string_view xml, const CartesianParseEntry & entry);
+  void ParseCustomField(std::string_view xml, std::size_t custom_entry_index);
+  void ParseCartesianSetpointField(std::string_view xml, const CartesianParseEntry & entry);
   void ParseDelayField(std::string_view xml);
   void ParseGpioField(std::string_view xml, std::size_t gpio_index);
   void ParseIpocField(std::string_view xml);
