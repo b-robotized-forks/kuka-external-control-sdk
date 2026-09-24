@@ -566,29 +566,18 @@ void MotionState::ConfigureGpioParseEntries(MotionStateXmlConfiguration & config
 
 void MotionState::BuildParseOrder(const MotionStateXmlConfiguration & config)
 {
-  // TODO(Sachin): Validate this and remove the below comment.
-  // KUKA's RSI wire format does not place Delay at a fixed offset -- it appears wherever it was
-  // declared in the robot-side SEND element list relative to GPIO/other elements, which differs
-  // per robot configuration (e.g. some configs declare it right after the joint fields and
-  // before GPIO, others declare it last, after GPIO). The parser below only scans forward, so
-  // getting this wrong means it skips past an already-passed Delay element and fails to find it.
-  // Callers that know their robot's exact layout can pin Delay's position explicitly in
-  // field_order; otherwise it defaults to right before the first GPIO entry (or at the end).
   std::vector<ParseOrderEntry> configurable_order;
-  bool caller_specified_delay = false;
   if (!config.field_order.empty())
   {
     configurable_order.reserve(config.field_order.size());
     for (const auto & entry : config.field_order)
     {
-      if (entry.field_type == MotionStateXmlFieldType::IPOC)
+      if (
+        entry.field_type == MotionStateXmlFieldType::DELAY ||
+        entry.field_type == MotionStateXmlFieldType::IPOC)
       {
         throw std::invalid_argument(
-          "Motion-state field_order must not contain IPOC; it is handled internally");
-      }
-      if (entry.field_type == MotionStateXmlFieldType::DELAY)
-      {
-        caller_specified_delay = true;
+          "Motion-state field_order must not contain DELAY or IPOC; they are handled internally");
       }
       configurable_order.push_back({entry.field_type, entry.index});
     }
@@ -612,37 +601,12 @@ void MotionState::BuildParseOrder(const MotionStateXmlConfiguration & config)
   // Delay and IPOC are always parsed exactly once and are not configurable.
   parse_plan_.parse_order.clear();
   parse_plan_.parse_order.reserve(configurable_order.size() + 2);
-
-  if (caller_specified_delay)
+  for (const auto & entry : configurable_order)
   {
-    // Caller pinned Delay's exact position; use their order verbatim.
-    for (const auto & entry : configurable_order)
-    {
-      parse_plan_.parse_order.push_back(entry);
-    }
+    parse_plan_.parse_order.push_back(entry);
   }
-  else
-  {
-    std::size_t gpio_insert_pos = configurable_order.size();
-    for (std::size_t i = 0; i < configurable_order.size(); ++i)
-    {
-      if (configurable_order[i].field_type == MotionStateXmlFieldType::GPIO)
-      {
-        gpio_insert_pos = i;
-        break;
-      }
-    }
-    for (std::size_t i = 0; i < gpio_insert_pos; ++i)
-    {
-      parse_plan_.parse_order.push_back(configurable_order[i]);
-    }
-    parse_plan_.parse_order.push_back({MotionStateXmlFieldType::DELAY, 0});
-    for (std::size_t i = gpio_insert_pos; i < configurable_order.size(); ++i)
-    {
-      parse_plan_.parse_order.push_back(configurable_order[i]);
-    }
-  }
-  // IPOC is always the last element in the telegram.
+  // These are always parsed after all configurable fields.
+  parse_plan_.parse_order.push_back({MotionStateXmlFieldType::DELAY, 0});
   parse_plan_.parse_order.push_back({MotionStateXmlFieldType::IPOC, 0});
 }
 
