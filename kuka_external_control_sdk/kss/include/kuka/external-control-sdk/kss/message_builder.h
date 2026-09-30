@@ -113,6 +113,12 @@ private:
     std::array<std::string, 6> attribute_names;
   };
 
+  struct CustomParseEntry
+  {
+    std::size_t element_index = 0;
+    std::string attribute_name;
+  };
+
   struct ParseOrderEntry
   {
     MotionStateXmlFieldType field_type = MotionStateXmlFieldType::JOINT;
@@ -124,6 +130,7 @@ private:
     std::vector<std::string> element_names;
     std::vector<JointParseEntry> joint_entries;
     std::optional<CartesianParseEntry> cartesian_entry;
+    std::vector<CustomParseEntry> custom_entries;
     std::string delay_element_name = "Delay";
     std::string delay_attribute_name = "D";
     std::string ipoc_element_name = "IPOC";
@@ -140,6 +147,7 @@ private:
   std::size_t GetOrAddParseElementIndex(const std::string & element_name);
   void InitializeCoreParsePlanFields();
   void AddCartesianParseEntry(const MotionStateXmlConfiguration & config);
+  void AddCustomParseEntries(const MotionStateXmlConfiguration & config);
   void AddJointParseEntries(const MotionStateXmlConfiguration & config);
   void ConfigureGpioParseEntries(MotionStateXmlConfiguration & config);
   void BuildParseOrder(const MotionStateXmlConfiguration & config);
@@ -156,6 +164,7 @@ private:
     std::string_view attribute_name);
   void ParseJointField(std::string_view xml, std::size_t joint_entry_index);
   void ParseCartesianField(std::string_view xml, const CartesianParseEntry & entry);
+  void ParseCustomField(std::string_view xml, std::size_t custom_entry_index);
   void ParseDelayField(std::string_view xml);
   void ParseGpioField(std::string_view xml, std::size_t gpio_index);
   void ParseIpocField(std::string_view xml);

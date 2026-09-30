@@ -149,6 +149,16 @@ struct MotionStateCartesianFieldConfiguration
   std::array<std::string, 6> xml_attributes = {"X", "Y", "Z", "A", "B", "C"};
 };
 
+// A single arbitrary scalar element, e.g. an RSIVisual object output mapped to its own custom
+// SEND element (unlike GPIO, which packs multiple named attributes into one shared element) --
+// for example <ProgStatus R="3"/> or <OvPro R="99.0"/>. Each entry is its own independent
+// element/attribute pair.
+struct MotionStateCustomFieldConfiguration
+{
+  std::string xml_element;
+  std::string xml_attribute;
+};
+
 enum class MotionStateXmlFieldType : uint8_t
 {
   CARTESIAN = 0,
@@ -156,7 +166,9 @@ enum class MotionStateXmlFieldType : uint8_t
   GPIO = 2,
   // Internal-only: DELAY and IPOC are handled by the SDK and are not allowed in field_order.
   DELAY = 3,
-  IPOC = 4
+  IPOC = 4,
+  // One entry per MotionStateXmlConfiguration::custom_fields element, in declaration order.
+  CUSTOM = 5
 };
 
 struct MotionStateXmlOrderEntry
@@ -183,6 +195,11 @@ struct MotionStateXmlConfiguration
 
   // Attribute names for GPIO state values.
   std::vector<std::string> gpio_xml_attributes;
+
+  // Arbitrary scalar elements to read (e.g. RSIVisual "Status"/"OV_PRO" object outputs mapped
+  // to custom SEND elements such as ProgStatus.R/OvPro.R). Empty by default. Each entry produces
+  // one value in GetMeasuredCustomValues(), in the order declared here.
+  std::vector<MotionStateCustomFieldConfiguration> custom_fields;
 
   // Explicit field ordering for configurable fields in the incoming message.
   // Delay and IPOC are always handled internally and must not be configured.
