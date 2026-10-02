@@ -168,7 +168,10 @@ enum class MotionStateXmlFieldType : uint8_t
   DELAY = 3,
   IPOC = 4,
   // One entry per MotionStateXmlConfiguration::custom_fields element, in declaration order.
-  CUSTOM = 5
+  CUSTOM = 5,
+  // Setpoint Cartesian pose (RSol). Independent of CARTESIAN (actual pose, RIst) -- both are
+  // optional and separately enabled/positioned.
+  CARTESIAN_SETPOINT = 6
 };
 
 struct MotionStateXmlOrderEntry
@@ -187,8 +190,13 @@ struct MotionStateXmlConfiguration
   //  - if any external joint defines TORQUE/CURRENT, all external joints must define it
   std::vector<MotionStateJointFieldConfiguration> joint_fields;
 
-  // XML field definition for Cartesian state values.
+  // XML field definition for Cartesian state values (actual pose, RIst).
   MotionStateCartesianFieldConfiguration cartesian;
+
+  // XML field definition for Cartesian setpoint values (RSol). Disabled by default -- enable
+  // by setting cartesian_setpoint.enabled = true (default xml_element is "RSol").
+  MotionStateCartesianFieldConfiguration cartesian_setpoint = {
+    /*enabled=*/false, /*xml_element=*/"RSol", /*xml_attributes=*/{"X", "Y", "Z", "A", "B", "C"}};
 
   // XML element name for GPIO state values (default: "GPIO").
   std::string gpio_xml_element = "GPIO";
