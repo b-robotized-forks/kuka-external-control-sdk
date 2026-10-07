@@ -114,7 +114,9 @@ enum class MotionStateSignalType : uint8_t
   POSITION = 0,
   VELOCITY = 1,
   TORQUE = 2,
-  CURRENT = 3
+  CURRENT = 3,
+  // Axis-specific setpoint position (ASPos / ESPos)
+  SETPOINT_POSITION = 4
 };
 
 constexpr const char * MotionStateSignalTypeToString(MotionStateSignalType signal_type)
@@ -129,6 +131,8 @@ constexpr const char * MotionStateSignalTypeToString(MotionStateSignalType signa
       return "torque";
     case MotionStateSignalType::CURRENT:
       return "current";
+    case MotionStateSignalType::SETPOINT_POSITION:
+      return "setpoint_position";
     default:
       return "unknown";
   }
@@ -185,9 +189,9 @@ struct MotionStateXmlConfiguration
   // XML field definitions for joint state values.
   // POSITION must be defined for every joint.
   // If VELOCITY is defined for any joint, it must be defined for all joints.
-  // TORQUE and CURRENT are each validated per joint group:
-  //  - if any internal joint defines TORQUE/CURRENT, all internal joints must define it
-  //  - if any external joint defines TORQUE/CURRENT, all external joints must define it
+  // TORQUE, CURRENT and SETPOINT_POSITION are each validated per joint group:
+  //  - if any internal joint defines one of them, all internal joints must define it
+  //  - if any external joint defines one of them, all external joints must define it
   std::vector<MotionStateJointFieldConfiguration> joint_fields;
 
   // XML field definition for Cartesian state values (actual pose, RIst).

@@ -70,6 +70,7 @@ public:
     measured_torques_.resize(dof, std::numeric_limits<double>::quiet_NaN());
     measured_velocities_.resize(dof, std::numeric_limits<double>::quiet_NaN());
     measured_currents_.resize(dof, std::numeric_limits<double>::quiet_NaN());
+    measured_setpoint_positions_.resize(dof, std::numeric_limits<double>::quiet_NaN());
     measured_cartesian_positions_.resize(6, std::numeric_limits<double>::quiet_NaN());
     measured_cartesian_setpoints_.resize(6, std::numeric_limits<double>::quiet_NaN());
     gpio_attribute_names_.reserve(gpio_configs.size());
@@ -96,7 +97,8 @@ private:
     POSITION = 0,
     VELOCITY = 1,
     TORQUE = 2,
-    CURRENT = 3
+    CURRENT = 3,
+    SETPOINT_POSITION = 4
   };
   static ParsedQuantity ToParsedQuantity(MotionStateSignalType signal_type);
 

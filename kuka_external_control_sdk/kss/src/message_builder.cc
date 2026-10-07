@@ -230,6 +230,8 @@ MotionState::ParsedQuantity MotionState::ToParsedQuantity(MotionStateSignalType 
       return ParsedQuantity::TORQUE;
     case MotionStateSignalType::CURRENT:
       return ParsedQuantity::CURRENT;
+    case MotionStateSignalType::SETPOINT_POSITION:
+      return ParsedQuantity::SETPOINT_POSITION;
     default:
       throw std::invalid_argument("Unsupported motion-state signal type");
   }
@@ -309,6 +311,7 @@ void MotionState::CreateFromXML(const char * incoming_xml)
   has_torques_ = false;
   has_velocities_ = false;
   has_currents_ = false;
+  has_setpoint_positions_ = false;
   has_cartesian_positions_ = false;
   has_cartesian_setpoints_ = false;
   parse_pos_ = 0;
@@ -527,6 +530,7 @@ void MotionState::AddJointParseEntries(const MotionStateXmlConfiguration & confi
   std::vector<bool> has_velocity_for_joint(dof_, false);
   std::vector<bool> has_torque_for_joint(dof_, false);
   std::vector<bool> has_current_for_joint(dof_, false);
+  std::vector<bool> has_setpoint_position_for_joint(dof_, false);
   for (const auto & field : config.joint_fields)
   {
     if (field.joint_identifier.empty() || field.xml_element.empty() || field.xml_attribute.empty())
@@ -554,6 +558,10 @@ void MotionState::AddJointParseEntries(const MotionStateXmlConfiguration & confi
     else if (entry.quantity == ParsedQuantity::CURRENT)
     {
       has_current_for_joint[entry.joint_index] = true;
+    }
+    else if (entry.quantity == ParsedQuantity::SETPOINT_POSITION)
+    {
+      has_setpoint_position_for_joint[entry.joint_index] = true;
     }
     parse_plan_.joint_entries.push_back(std::move(entry));
   }
@@ -583,6 +591,10 @@ void MotionState::AddJointParseEntries(const MotionStateXmlConfiguration & confi
   bool all_internal_current = true;
   bool any_external_current = false;
   bool all_external_current = true;
+  bool any_internal_setpoint_position = false;
+  bool all_internal_setpoint_position = true;
+  bool any_external_setpoint_position = false;
+  bool all_external_setpoint_position = true;
   for (std::size_t i = 0; i < joint_configs_.size(); ++i)
   {
     if (joint_configs_[i].is_external)
@@ -591,6 +603,10 @@ void MotionState::AddJointParseEntries(const MotionStateXmlConfiguration & confi
       all_external_torque = all_external_torque && has_torque_for_joint[i];
       any_external_current = any_external_current || has_current_for_joint[i];
       all_external_current = all_external_current && has_current_for_joint[i];
+      any_external_setpoint_position =
+        any_external_setpoint_position || has_setpoint_position_for_joint[i];
+      all_external_setpoint_position =
+        all_external_setpoint_position && has_setpoint_position_for_joint[i];
     }
     else
     {
@@ -598,6 +614,10 @@ void MotionState::AddJointParseEntries(const MotionStateXmlConfiguration & confi
       all_internal_torque = all_internal_torque && has_torque_for_joint[i];
       any_internal_current = any_internal_current || has_current_for_joint[i];
       all_internal_current = all_internal_current && has_current_for_joint[i];
+      any_internal_setpoint_position =
+        any_internal_setpoint_position || has_setpoint_position_for_joint[i];
+      all_internal_setpoint_position =
+        all_internal_setpoint_position && has_setpoint_position_for_joint[i];
     }
   }
 
@@ -624,6 +644,18 @@ void MotionState::AddJointParseEntries(const MotionStateXmlConfiguration & confi
     throw std::invalid_argument(
       "Motion-state configuration must include CURRENT field for every external joint if "
       "configured");
+  }
+  if (any_internal_setpoint_position && !all_internal_setpoint_position)
+  {
+    throw std::invalid_argument(
+      "Motion-state configuration must include SETPOINT_POSITION field for every internal joint "
+      "if configured");
+  }
+  if (any_external_setpoint_position && !all_external_setpoint_position)
+  {
+    throw std::invalid_argument(
+      "Motion-state configuration must include SETPOINT_POSITION field for every external joint "
+      "if configured");
   }
 }
 
@@ -873,6 +905,20 @@ void MotionState::ParseJointField(std::string_view xml, std::size_t joint_entry_
     case ParsedQuantity::CURRENT:
       measured_currents_[entry.joint_index] = parsed;
       has_currents_ = true;
+      break;
+    case ParsedQuantity::SETPOINT_POSITION:
+      switch (joint_config.type)
+      {
+        case JointConfiguration::Type::REVOLUTE:
+          measured_setpoint_positions_[entry.joint_index] = DegreesToRadians(parsed);
+          break;
+        case JointConfiguration::Type::PRISMATIC:
+          measured_setpoint_positions_[entry.joint_index] = MillimetresToMeters(parsed);
+          break;
+        default:
+          throw std::invalid_argument("Unknown joint type in setpoint position parser");
+      }
+      has_setpoint_positions_ = true;
       break;
     default:
       throw std::invalid_argument("Unknown joint field quantity");

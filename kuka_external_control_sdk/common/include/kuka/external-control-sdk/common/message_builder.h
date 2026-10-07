@@ -40,6 +40,11 @@ public:
 
   std::vector<double> const & GetMeasuredCurrents() const { return measured_currents_; }
 
+  std::vector<double> const & GetMeasuredSetpointPositions() const
+  {
+    return measured_setpoint_positions_;
+  }
+
   std::vector<double> const & GetMeasuredCartesianPositions() const
   {
     return measured_cartesian_positions_;
@@ -64,6 +69,7 @@ protected:
   bool has_torques_ = false;
   bool has_velocities_ = false;
   bool has_currents_ = false;
+  bool has_setpoint_positions_ = false;
   bool has_cartesian_positions_ = false;
   bool has_cartesian_setpoints_ = false;
 
@@ -71,6 +77,7 @@ protected:
   std::vector<double> measured_torques_;
   std::vector<double> measured_velocities_;
   std::vector<double> measured_currents_;
+  std::vector<double> measured_setpoint_positions_;
   std::vector<double> measured_cartesian_positions_;
   std::vector<double> measured_custom_values_;
   std::vector<double> measured_cartesian_setpoints_;
