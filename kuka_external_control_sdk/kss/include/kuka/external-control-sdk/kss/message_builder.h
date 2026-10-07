@@ -70,7 +70,9 @@ public:
     measured_torques_.resize(dof, std::numeric_limits<double>::quiet_NaN());
     measured_velocities_.resize(dof, std::numeric_limits<double>::quiet_NaN());
     measured_currents_.resize(dof, std::numeric_limits<double>::quiet_NaN());
+    measured_setpoint_positions_.resize(dof, std::numeric_limits<double>::quiet_NaN());
     measured_cartesian_positions_.resize(6, std::numeric_limits<double>::quiet_NaN());
+    measured_cartesian_setpoints_.resize(6, std::numeric_limits<double>::quiet_NaN());
     gpio_attribute_names_.reserve(gpio_configs.size());
     for (const auto & config : gpio_configs)
     {
@@ -95,7 +97,8 @@ private:
     POSITION = 0,
     VELOCITY = 1,
     TORQUE = 2,
-    CURRENT = 3
+    CURRENT = 3,
+    SETPOINT_POSITION = 4
   };
   static ParsedQuantity ToParsedQuantity(MotionStateSignalType signal_type);
 
@@ -131,6 +134,7 @@ private:
     std::vector<JointParseEntry> joint_entries;
     std::optional<CartesianParseEntry> cartesian_entry;
     std::vector<CustomParseEntry> custom_entries;
+    std::optional<CartesianParseEntry> cartesian_setpoint_entry;
     std::string delay_element_name = "Delay";
     std::string delay_attribute_name = "D";
     std::string ipoc_element_name = "IPOC";
@@ -148,6 +152,7 @@ private:
   void InitializeCoreParsePlanFields();
   void AddCartesianParseEntry(const MotionStateXmlConfiguration & config);
   void AddCustomParseEntries(const MotionStateXmlConfiguration & config);
+  void AddCartesianSetpointParseEntry(const MotionStateXmlConfiguration & config);
   void AddJointParseEntries(const MotionStateXmlConfiguration & config);
   void ConfigureGpioParseEntries(MotionStateXmlConfiguration & config);
   void BuildParseOrder(const MotionStateXmlConfiguration & config);
@@ -165,6 +170,7 @@ private:
   void ParseJointField(std::string_view xml, std::size_t joint_entry_index);
   void ParseCartesianField(std::string_view xml, const CartesianParseEntry & entry);
   void ParseCustomField(std::string_view xml, std::size_t custom_entry_index);
+  void ParseCartesianSetpointField(std::string_view xml, const CartesianParseEntry & entry);
   void ParseDelayField(std::string_view xml);
   void ParseGpioField(std::string_view xml, std::size_t gpio_index);
   void ParseIpocField(std::string_view xml);
