@@ -113,7 +113,10 @@ enum class MotionStateSignalType : uint8_t
 {
   POSITION = 0,
   VELOCITY = 1,
-  TORQUE = 2
+  TORQUE = 2,
+  CURRENT = 3,
+  // Axis-specific setpoint position (ASPos / ESPos)
+  SETPOINT_POSITION = 4
 };
 
 constexpr const char * MotionStateSignalTypeToString(MotionStateSignalType signal_type)
@@ -126,6 +129,10 @@ constexpr const char * MotionStateSignalTypeToString(MotionStateSignalType signa
       return "velocity";
     case MotionStateSignalType::TORQUE:
       return "torque";
+    case MotionStateSignalType::CURRENT:
+      return "current";
+    case MotionStateSignalType::SETPOINT_POSITION:
+      return "setpoint_position";
     default:
       return "unknown";
   }
@@ -146,6 +153,16 @@ struct MotionStateCartesianFieldConfiguration
   std::array<std::string, 6> xml_attributes = {"X", "Y", "Z", "A", "B", "C"};
 };
 
+// A single arbitrary scalar element, e.g. an RSIVisual object output mapped to its own custom
+// SEND element (unlike GPIO, which packs multiple named attributes into one shared element) --
+// for example <ProgStatus R="3"/> or <OvPro R="99.0"/>. Each entry is its own independent
+// element/attribute pair.
+struct MotionStateCustomFieldConfiguration
+{
+  std::string xml_element;
+  std::string xml_attribute;
+};
+
 enum class MotionStateXmlFieldType : uint8_t
 {
   CARTESIAN = 0,
@@ -153,7 +170,12 @@ enum class MotionStateXmlFieldType : uint8_t
   GPIO = 2,
   // Internal-only: DELAY and IPOC are handled by the SDK and are not allowed in field_order.
   DELAY = 3,
-  IPOC = 4
+  IPOC = 4,
+  // One entry per MotionStateXmlConfiguration::custom_fields element, in declaration order.
+  CUSTOM = 5,
+  // Setpoint Cartesian pose (RSol). Independent of CARTESIAN (actual pose, RIst) -- both are
+  // optional and separately enabled/positioned.
+  CARTESIAN_SETPOINT = 6
 };
 
 struct MotionStateXmlOrderEntry
@@ -167,19 +189,29 @@ struct MotionStateXmlConfiguration
   // XML field definitions for joint state values.
   // POSITION must be defined for every joint.
   // If VELOCITY is defined for any joint, it must be defined for all joints.
-  // TORQUE is validated per joint group:
-  //  - if any internal joint defines TORQUE, all internal joints must define TORQUE
-  //  - if any external joint defines TORQUE, all external joints must define TORQUE
+  // TORQUE, CURRENT and SETPOINT_POSITION are each validated per joint group:
+  //  - if any internal joint defines one of them, all internal joints must define it
+  //  - if any external joint defines one of them, all external joints must define it
   std::vector<MotionStateJointFieldConfiguration> joint_fields;
 
-  // XML field definition for Cartesian state values.
+  // XML field definition for Cartesian state values (actual pose, RIst).
   MotionStateCartesianFieldConfiguration cartesian;
+
+  // XML field definition for Cartesian setpoint values (RSol). Disabled by default -- enable
+  // by setting cartesian_setpoint.enabled = true (default xml_element is "RSol").
+  MotionStateCartesianFieldConfiguration cartesian_setpoint = {
+    /*enabled=*/false, /*xml_element=*/"RSol", /*xml_attributes=*/{"X", "Y", "Z", "A", "B", "C"}};
 
   // XML element name for GPIO state values (default: "GPIO").
   std::string gpio_xml_element = "GPIO";
 
   // Attribute names for GPIO state values.
   std::vector<std::string> gpio_xml_attributes;
+
+  // Arbitrary scalar elements to read (e.g. RSIVisual "Status"/"OV_PRO" object outputs mapped
+  // to custom SEND elements such as ProgStatus.R/OvPro.R). Empty by default. Each entry produces
+  // one value in GetMeasuredCustomValues(), in the order declared here.
+  std::vector<MotionStateCustomFieldConfiguration> custom_fields;
 
   // Explicit field ordering for configurable fields in the incoming message.
   // Delay and IPOC are always handled internally and must not be configured.
